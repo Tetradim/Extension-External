@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfigFromFile } from "../src/config.js";
 import { nextRetryDelayMs } from "../src/retry.js";
+import { createServer } from "../src/server.js";
 import { createJsonStore } from "../src/store.js";
 
 const sourceUrl = "https://discord.com/channels/111111111111111111/222222222222222222";
@@ -249,6 +250,52 @@ test("store marks failed job for retry twice and final failure on third failed a
     assert.equal(snapshot.jobs[0].reason, "composer unavailable");
     assert.equal(snapshot.events.at(-1).type, "failed");
   } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("HTTP API enqueues, claims, records, and reports helper jobs", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "helper-http-"));
+  let server;
+  try {
+    const store = await createJsonStore(join(dir, "state.json"));
+    server = createServer({ config: sampleConfig, store });
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const { port } = server.address();
+    const baseUrl = `http://127.0.0.1:${port}`;
+
+    const eventResponse = await fetch(`${baseUrl}/events`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(samplePayload)
+    });
+    assert.equal(eventResponse.status, 202);
+
+    const nextResponse = await fetch(`${baseUrl}/jobs/next?clientId=copy-repost`);
+    assert.equal(nextResponse.status, 200);
+    const job = await nextResponse.json();
+    assert.equal(job.destinationUrl, firstDestinationUrl);
+
+    const resultResponse = await fetch(`${baseUrl}/jobs/${job.id}/result`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "sent", clientId: "copy-repost", degradation: [] })
+    });
+    assert.equal(resultResponse.status, 200);
+
+    const statusResponse = await fetch(`${baseUrl}/status`);
+    assert.equal(statusResponse.status, 200);
+    const status = await statusResponse.json();
+    assert.equal(status.counts.sent, 1);
+  } finally {
+    if (server) {
+      await new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
     await rm(dir, { recursive: true, force: true });
   }
 });
