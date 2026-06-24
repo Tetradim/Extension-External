@@ -13,6 +13,16 @@
   const submittedMessageKeys = new Set();
   const pendingMessageKeys = new Set();
 
+  if (window.__DISCORD_COPY_REPOST_TEST__) {
+    window.DiscordCopyRepostContentTest = {
+      captureVisibleMessageKeys,
+      messageNodeTextMatches,
+      normalizeComposerText,
+      waitForSendConfirmation
+    };
+    return;
+  }
+
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === "ping") {
       sendResponse({ ok: true });
@@ -130,8 +140,10 @@
 
     await delay(150);
 
+    const beforeMessageKeys = captureVisibleMessageKeys();
+
     if (clickSendButton()) {
-      if (await waitForComposerClear(editor, job.messageText)) {
+      if (await waitForSendConfirmation(editor, job.messageText, beforeMessageKeys)) {
         return successfulPostResult(job);
       }
 
@@ -139,7 +151,7 @@
     }
 
     pressEnter(editor);
-    if (await waitForComposerClear(editor, job.messageText)) {
+    if (await waitForSendConfirmation(editor, job.messageText, beforeMessageKeys)) {
       return successfulPostResult(job);
     }
 
@@ -218,18 +230,22 @@
     editor.dispatchEvent(new KeyboardEvent("keyup", eventOptions));
   }
 
-  async function waitForComposerClear(editor, previousText) {
-    const deadline = Date.now() + 2500;
-    const expectedText = normalizeComposerText(previousText);
-    while (Date.now() < deadline) {
+  async function waitForSendConfirmation(editor, expectedText, beforeMessageKeys = new Set(), options = {}) {
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 2500;
+    const pollMs = Number.isFinite(options.pollMs) ? options.pollMs : 100;
+    const deadline = Date.now() + timeoutMs;
+
+    while (true) {
       const currentEditor = findComposer() || editor;
       const currentText = normalizeComposerText(composerText(currentEditor));
-      if (!currentText || (expectedText && !currentText.includes(expectedText))) {
+      if (!currentText || findNewMatchingMessageNode(expectedText, beforeMessageKeys)) {
         return true;
       }
-      await delay(100);
+      if (Date.now() >= deadline) {
+        return false;
+      }
+      await delay(Math.max(0, pollMs));
     }
-    return false;
   }
 
   function placeCaretAtEnd(editor) {
@@ -252,6 +268,50 @@
     return String(text || "").replace(/\s+/g, " ").trim();
   }
 
+  function captureVisibleMessageKeys() {
+    return new Set(
+      visibleMessageNodes()
+        .map(messageNodeKey)
+        .filter(Boolean)
+    );
+  }
+
+  function findNewMatchingMessageNode(expectedText, beforeMessageKeys) {
+    return visibleMessageNodes().find((messageNode) => {
+      const key = messageNodeKey(messageNode);
+      return key && !beforeMessageKeys.has(key) && messageNodeTextMatches(messageNode, expectedText);
+    });
+  }
+
+  function visibleMessageNodes() {
+    return Array.from(document.querySelectorAll(messageSelector)).filter(isVisible);
+  }
+
+  function messageNodeTextMatches(messageNode, expectedText) {
+    const messageText = normalizeComposerText(messageNode.innerText || messageNode.textContent || "");
+    const expected = normalizeComposerText(expectedText);
+    if (!messageText || !expected) {
+      return false;
+    }
+    if (messageText.includes(expected)) {
+      return true;
+    }
+
+    const prefix = meaningfulMessagePrefix(expected);
+    return Boolean(prefix && messageText.includes(prefix));
+  }
+
+  function meaningfulMessagePrefix(expectedText) {
+    const words = expectedText.split(" ").filter(Boolean);
+    if (words.length >= 6) {
+      return words.slice(0, 6).join(" ");
+    }
+    if (expectedText.length >= 24) {
+      return expectedText.slice(0, 24);
+    }
+    return expectedText;
+  }
+
   function hasVisibleContent(payload) {
     return Boolean(
       payload?.text?.trim() ||
@@ -263,6 +323,15 @@
 
   function payloadKey(payload) {
     return `${payload.sourceChannelId || "unknown"}:${payload.messageId || ""}`;
+  }
+
+  function messageNodeKey(messageNode) {
+    return (
+      getAttribute(messageNode, "data-list-item-id") ||
+      getAttribute(messageNode, "id") ||
+      messageNode.id ||
+      ""
+    );
   }
 
   function successfulPostResult(job) {
@@ -311,6 +380,17 @@
     return String(text || "")
       .split(/\s+/)
       .find(Boolean) || "";
+  }
+
+  function getAttribute(node, name) {
+    if (!node || typeof node.getAttribute !== "function") {
+      return "";
+    }
+    try {
+      return node.getAttribute(name) || "";
+    } catch {
+      return "";
+    }
   }
 
   function readableError(error) {
