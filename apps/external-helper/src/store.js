@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   createDedupeKey,
@@ -10,13 +10,17 @@ import {
 import { nextRetryDelayMs } from "./retry.js";
 
 const emptyState = () => ({ jobs: [], events: [], seen: {} });
+const defaultLeaseMs = 30_000;
 
 export async function createJsonStore(filePath) {
   let state = await loadState(filePath);
+  let writeChain = Promise.resolve();
 
-  async function persist() {
-    await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(filePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  function persist() {
+    const stateToWrite = clone(state);
+    const write = writeChain.catch(() => {}).then(() => writeState(filePath, stateToWrite));
+    writeChain = write;
+    return write;
   }
 
   function appendEvent(type, fields = {}, now = new Date()) {
@@ -28,6 +32,44 @@ export async function createJsonStore(filePath) {
     };
     state.events.push(event);
     return event;
+  }
+
+  function resetExpiredLeases(now) {
+    const nowTime = now.getTime();
+    let changed = false;
+
+    for (const job of state.jobs) {
+      if (job.status !== "in_progress") {
+        continue;
+      }
+
+      if (job.leaseExpiresAt) {
+        const leaseExpiresTime = new Date(job.leaseExpiresAt).getTime();
+        if (Number.isFinite(leaseExpiresTime) && leaseExpiresTime > nowTime) {
+          continue;
+        }
+      }
+
+      job.status = "retry_wait";
+      job.dueAt = now.toISOString();
+      job.leaseExpiresAt = "";
+      job.updatedAt = now.toISOString();
+      appendEvent(
+        "retry_wait",
+        jobEventFields(job, {
+          dueAt: job.dueAt,
+          reason: "lease_expired"
+        }),
+        now
+      );
+      changed = true;
+    }
+
+    return changed;
+  }
+
+  if (resetExpiredLeases(new Date())) {
+    await persist();
   }
 
   return {
@@ -93,12 +135,6 @@ export async function createJsonStore(filePath) {
         }
       }
 
-      state.seen[dedupeKey] = {
-        sourceChannelId: payload.sourceChannelId,
-        messageId: payload.messageId,
-        seenAt: now.toISOString()
-      };
-
       if (createdJobs.length === 0) {
         appendEvent(
           "no_matching_mapping",
@@ -108,6 +144,12 @@ export async function createJsonStore(filePath) {
           },
           now
         );
+      } else {
+        state.seen[dedupeKey] = {
+          sourceChannelId: payload.sourceChannelId,
+          messageId: payload.messageId,
+          seenAt: now.toISOString()
+        };
       }
 
       await persist();
@@ -116,6 +158,7 @@ export async function createJsonStore(filePath) {
 
     async claimNextJob(clientId, now = new Date()) {
       const nowTime = now.getTime();
+      const recoveredLeases = resetExpiredLeases(now);
       const job = state.jobs.find(
         (candidate) =>
           (candidate.status === "queued" || candidate.status === "retry_wait") &&
@@ -123,30 +166,46 @@ export async function createJsonStore(filePath) {
       );
 
       if (!job) {
+        if (recoveredLeases) {
+          await persist();
+        }
         return null;
       }
 
       job.status = "in_progress";
       job.attempt += 1;
       job.clientId = clientId;
+      job.leaseExpiresAt = new Date(nowTime + defaultLeaseMs).toISOString();
       job.updatedAt = now.toISOString();
       appendEvent(
         "in_progress",
-        {
-          jobId: job.id,
-          attempt: job.attempt,
-          clientId
-        },
+        jobEventFields(job),
         now
       );
       await persist();
       return clone(job);
     },
 
-    async recordJobResult({ jobId, status, reason = "", retry, degradation = [], now = new Date() }) {
+    async recordJobResult({ jobId, status, reason = "", retry, degradation = [], clientId, now = new Date() }) {
       const job = state.jobs.find((candidate) => candidate.id === jobId);
       if (!job) {
         throw new Error(`Job not found: ${jobId}`);
+      }
+
+      if (status !== "sent" && status !== "failed") {
+        throw new Error(`Unsupported job result status: ${status}`);
+      }
+
+      if (job.status === "sent" || job.status === "failed") {
+        throw new Error(`Job already terminal: ${jobId}`);
+      }
+
+      if (job.status !== "in_progress") {
+        throw new Error(`Job must be in progress before recording result: ${jobId}`);
+      }
+
+      if (clientId && job.clientId && job.clientId !== clientId) {
+        throw new Error(`Job ${jobId} is leased to a different client`);
       }
 
       if (status === "sent") {
@@ -154,20 +213,18 @@ export async function createJsonStore(filePath) {
         job.reason = reason;
         job.degradation = degradation;
         job.completedAt = now.toISOString();
+        job.leaseExpiresAt = "";
         job.updatedAt = now.toISOString();
-        appendEvent("sent", { jobId, degradation }, now);
+        appendEvent("sent", jobEventFields(job, { degradation, reason }), now);
         await persist();
         return clone(job);
-      }
-
-      if (status !== "failed") {
-        throw new Error(`Unsupported job result status: ${status}`);
       }
 
       const retryConfig = normalizeRetry(retry);
       job.reason = reason;
       job.degradation = degradation;
       job.updatedAt = now.toISOString();
+      job.leaseExpiresAt = "";
 
       if (job.attempt < retryConfig.maxAttempts) {
         const delayMs = nextRetryDelayMs(job.attempt, retryConfig.baseDelayMs);
@@ -175,13 +232,12 @@ export async function createJsonStore(filePath) {
         job.dueAt = new Date(now.getTime() + delayMs).toISOString();
         appendEvent(
           "retry_wait",
-          {
-            jobId,
-            attempt: job.attempt,
+          jobEventFields(job, {
             delayMs,
             dueAt: job.dueAt,
+            degradation,
             reason
-          },
+          }),
           now
         );
       } else {
@@ -189,11 +245,10 @@ export async function createJsonStore(filePath) {
         job.completedAt = now.toISOString();
         appendEvent(
           "failed",
-          {
-            jobId,
-            attempt: job.attempt,
+          jobEventFields(job, {
+            degradation,
             reason
-          },
+          }),
           now
         );
       }
@@ -206,6 +261,19 @@ export async function createJsonStore(filePath) {
       return clone(state);
     }
   };
+}
+
+async function writeState(filePath, state) {
+  await mkdir(dirname(filePath), { recursive: true });
+  const tempPath = `${filePath}.tmp`;
+  const handle = await open(tempPath, "w");
+  try {
+    await handle.writeFile(`${JSON.stringify(state, null, 2)}\n`, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await rename(tempPath, filePath);
 }
 
 async function loadState(filePath) {
@@ -229,6 +297,17 @@ function normalizeRetry(retry = {}) {
   const maxAttempts = Number.isInteger(retry.maxAttempts) ? retry.maxAttempts : 3;
   const baseDelayMs = Number.isInteger(retry.baseDelayMs) ? retry.baseDelayMs : 2000;
   return { maxAttempts, baseDelayMs };
+}
+
+function jobEventFields(job, fields = {}) {
+  return {
+    jobId: job.id,
+    attempt: job.attempt,
+    mappingId: job.mappingId,
+    destinationUrl: job.destinationUrl,
+    clientId: job.clientId,
+    ...fields
+  };
 }
 
 function clone(value) {

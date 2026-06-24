@@ -38,6 +38,16 @@ const samplePayload = {
   capturedAt: "2026-06-24T17:00:00.000Z"
 };
 
+const singleDestinationConfig = {
+  ...sampleConfig,
+  mappings: [
+    {
+      ...sampleConfig.mappings[0],
+      destinationUrls: [firstDestinationUrl]
+    }
+  ]
+};
+
 test("nextRetryDelayMs doubles from base delay by retry attempt", () => {
   assert.equal(nextRetryDelayMs(1, 2000), 2000);
   assert.equal(nextRetryDelayMs(2, 2000), 4000);
@@ -73,6 +83,67 @@ test("store queues one job per destination and skips duplicate source message", 
     assert.equal(snapshot.jobs.length, 2);
     assert.equal(snapshot.jobs[0].messageText.includes("[mirror]"), true);
     assert.equal(snapshot.events.at(-1).type, "skipped_duplicate");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("store makes expired in-progress job claimable after reload without extra attempt", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "helper-lease-"));
+  try {
+    const statePath = join(dir, "state.json");
+    const store = await createJsonStore(statePath);
+    await store.enqueueAlert(singleDestinationConfig, samplePayload);
+
+    const firstClaim = await store.claimNextJob("client-1", new Date("2030-01-01T17:00:00.000Z"));
+    assert.equal(firstClaim.attempt, 1);
+
+    const reloaded = await createJsonStore(statePath);
+    const secondClaim = await reloaded.claimNextJob("client-2", new Date("2030-01-01T17:00:31.000Z"));
+
+    assert.equal(secondClaim.id, firstClaim.id);
+    assert.equal(secondClaim.attempt, 2);
+    assert.equal(secondClaim.clientId, "client-2");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("store does not mark alert duplicate when no jobs were created", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "helper-no-match-"));
+  try {
+    const store = await createJsonStore(join(dir, "state.json"));
+    const disabledConfig = { ...sampleConfig, enabled: false };
+
+    const first = await store.enqueueAlert(disabledConfig, samplePayload);
+    const second = await store.enqueueAlert(sampleConfig, samplePayload);
+    const snapshot = await store.snapshot();
+
+    assert.equal(first.createdJobs.length, 0);
+    assert.equal(second.skippedDuplicate, false);
+    assert.equal(second.createdJobs.length, 2);
+    assert.equal(snapshot.jobs.length, 2);
+    assert.equal(snapshot.events.some((event) => event.type === "no_matching_mapping"), true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("store rejects terminal result for a queued job before claim", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "helper-invalid-result-"));
+  try {
+    const store = await createJsonStore(join(dir, "state.json"));
+    await store.enqueueAlert(singleDestinationConfig, samplePayload);
+    const snapshot = await store.snapshot();
+
+    await assert.rejects(
+      store.recordJobResult({
+        jobId: snapshot.jobs[0].id,
+        status: "sent",
+        now: new Date("2026-06-24T17:00:00.000Z")
+      }),
+      /in progress/
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
