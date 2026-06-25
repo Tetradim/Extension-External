@@ -94,7 +94,7 @@ It has three runtime parts:
 
 - `src/content.js`: runs inside Discord channel tabs.
 - `src/background.js`: owns helper communication, config filtering, polling, tab coordination, and result reporting.
-- `src/popup.html` / `src/popup.js`: stores enable state, helper token, Listen channel URLs, and Post channel URLs.
+- `src/popup.html` / `src/popup.js`: stores enable state, helper token, Listen channel URLs, Post channel URLs, and the freshness window.
 
 The content script monitors visible Discord message DOM nodes matching:
 
@@ -108,9 +108,9 @@ It extracts visible alert data through `src/parser.js`:
 - message ID or stable DOM fallback ID
 - author text when visible
 - timestamp text when visible
+- Discord timestamp ISO value from the message `<time datetime="...">`
 - message text
 - embed title, description, fields, and footer
-- visible button/label text
 - visible Discord CDN/media attachment URLs
 
 The content script does not talk to the helper directly. It sends payloads to the background service worker so the helper token stays centralized in extension storage.
@@ -120,6 +120,7 @@ The background worker:
 - reads `/config` from the helper
 - prefers popup-managed Listen/Post routes when any popup channel URLs are locked
 - filters source observations before calling `/events`
+- drops source observations outside the configured freshness window before calling `/events`
 - uses `chrome.alarms` for MV3-compatible polling
 - claims helper jobs through `/jobs/next?clientId=copy-repost-extension`
 - opens or reuses destination Discord tabs
@@ -231,6 +232,7 @@ Both extensions submit the same payload shape to the helper:
   "messageId": "999999999999999999",
   "author": "Alert Bot",
   "timestampText": "Today at 12:00 PM",
+  "timestampIso": "2026-06-24T17:00:00.000Z",
   "text": "Entry alert",
   "embeds": [
     {
@@ -242,7 +244,6 @@ Both extensions submit the same payload shape to the helper:
       "footer": "Trading alerts"
     }
   ],
-  "labels": ["Open Chart"],
   "attachmentUrls": ["https://cdn.discordapp.com/file.png"],
   "capturedAt": "2026-06-24T17:00:00.000Z"
 }
@@ -251,7 +252,11 @@ Both extensions submit the same payload shape to the helper:
 Required practical input:
 
 - `sourceUrl`
-- at least one visible content field: `text`, non-empty `embeds`, `labels`, or `attachmentUrls`
+- at least one copied-alert content field: `text`, non-empty `embeds`, or `attachmentUrls`
+
+`labels` from Discord UI buttons, profile badges, and server tags are intentionally ignored by the copy/repost formatter. Reposts include only source, author/time, copied body text, embeds, and visible attachment URLs.
+
+The copy/repost extension also uses `timestampIso` to prevent old channel history from being reposted when a source channel is opened or refreshed. By default, only Discord messages from the last 10 minutes are submitted. Messages without a Discord timestamp are skipped by the freshness gate.
 
 The shared package derives `sourceChannelId` from `sourceUrl`. The helper dedupes by source channel and message ID. When a real Discord message ID is unavailable, the parser uses stable DOM-derived fallbacks for the current page session.
 
@@ -378,6 +383,7 @@ The extension popup shows:
 - helper token input
 - helper connection status
 - last background status
+- Freshness window input, in minutes
 - Listen URL input with Lock, Revert, and Revert All
 - Post URL input with Lock and Revert
 - Stored URL dropdowns for both Listen and Post
@@ -406,6 +412,8 @@ The **Post** input stores destination channel URLs.
 
 Popup routes are active as soon as at least one Listen or Post URL is saved. If Listen URLs exist but no Post URL exists, matching alerts are not submitted and the extension status reports that no post channels are configured.
 
+The **Freshness window** controls how far back the extension may copy messages from a source Discord channel. The default is `10` minutes. The accepted range is `1` to `1440` minutes. This filter is applied in the background worker before helper queueing, so opening a channel with older visible history does not create repost jobs for stale messages. Use `1` minute when you want near-new-only testing after opening a channel.
+
 ## Runtime Timing
 
 The copy/repost workflow uses longer waits than a normal localhost API because Discord can cold-load slowly:
@@ -423,15 +431,16 @@ If Discord still reports `Discord tab did not finish loading` or `Discord compos
 3. `src/parser.js` extracts visible alert data.
 4. The content script sends the payload to `src/background.js`.
 5. The background worker loads `/config` and drops payloads that do not match enabled source mappings.
-6. The background worker submits matching payloads to `POST /events`.
-7. The helper dedupes the source message and creates one `queued` job per destination URL.
-8. The background worker polls `/jobs/next?clientId=copy-repost-extension`.
-9. The background worker opens or reuses the destination Discord tab.
-10. The content script validates the destination channel and focuses the composer.
-11. The background worker uses trusted Chrome input to clear extension-created drafts, type the repost, and press Enter.
-12. The content script confirms that Discord accepted the post.
-13. The background worker reports `sent` or `failed` to `/jobs/:id/result`.
-14. The helper either finalizes the job or schedules an exponential-backoff retry.
+6. The background worker drops payloads older than the configured freshness window.
+7. The background worker submits matching fresh payloads to `POST /events`.
+8. The helper dedupes the source message and creates one `queued` job per destination URL.
+9. The background worker polls `/jobs/next?clientId=copy-repost-extension`.
+10. The background worker opens or reuses the destination Discord tab.
+11. The content script validates the destination channel and focuses the composer.
+12. The background worker uses trusted Chrome input to clear extension-created drafts, type the repost, and press Enter.
+13. The content script confirms that Discord accepted the post.
+14. The background worker reports `sent` or `failed` to `/jobs/:id/result`.
+15. The helper either finalizes the job or schedules an exponential-backoff retry.
 
 ## What Each Piece Monitors
 
@@ -457,6 +466,11 @@ If Discord still reports `Discord tab did not finish loading` or `Discord compos
 
 - The content script saw a Discord message, but helper config does not list that channel as an enabled source.
 - Check `sourceUrl` in `config.local.json`.
+
+`ignored stale message`
+
+- The content script saw a Discord message, but the message timestamp was missing or older than the popup freshness window.
+- Increase the Freshness window only when intentionally replaying recent channel history.
 
 `Destination channel mismatch`
 

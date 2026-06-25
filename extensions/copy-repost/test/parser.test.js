@@ -128,7 +128,11 @@ function buildMessageNode() {
     id: messageNodeId,
     children: [
       createElement({ className: "username", text: "Alert Bot" }),
-      createElement({ tagName: "time", text: "Today at 12:00 PM" }),
+      createElement({
+        tagName: "time",
+        text: "Today at 12:00 PM",
+        attrs: { datetime: "2026-06-25T18:59:00.000Z" }
+      }),
       createElement({ className: "markup", text: "Entry alert" }),
       embed,
       createElement({ tagName: "button", text: "Open Chart" }),
@@ -170,6 +174,7 @@ test("extractAlertFromMessageNode captures visible Discord message content", asy
   assert.equal(alert.messageId, messageId);
   assert.equal(alert.author, "Alert Bot");
   assert.equal(alert.timestampText, "Today at 12:00 PM");
+  assert.equal(alert.timestampIso, "2026-06-25T18:59:00.000Z");
   assert.equal(alert.text, "Entry alert");
   assert.deepEqual(fromSandbox(alert.embeds), [
     {
@@ -179,7 +184,7 @@ test("extractAlertFromMessageNode captures visible Discord message content", asy
       footer: "Trading alerts"
     }
   ]);
-  assert.deepEqual(fromSandbox(alert.labels), ["Open Chart"]);
+  assert.deepEqual(fromSandbox(alert.labels), []);
   assert.deepEqual(fromSandbox(alert.attachmentUrls), ["https://cdn.discordapp.com/file.png"]);
   assert.match(alert.capturedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 });
@@ -200,6 +205,7 @@ test("extractAlertFromMessageNode handles absent selectors without throwing", as
   assert.equal(alert.messageId, messageId);
   assert.equal(alert.author, "");
   assert.equal(alert.timestampText, "");
+  assert.equal(alert.timestampIso, "");
   assert.equal(alert.text, "");
   assert.deepEqual(fromSandbox(alert.embeds), []);
   assert.deepEqual(fromSandbox(alert.labels), []);

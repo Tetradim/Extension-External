@@ -101,11 +101,12 @@ export function validateAlertPayload(input) {
         .map((url) => url.trim())
         .filter(Boolean)
     : [];
-  if (!text && embeds.length === 0 && labels.length === 0 && attachmentUrls.length === 0) {
+  if (!text && embeds.length === 0 && attachmentUrls.length === 0) {
     throw new Error("Alert payload must include visible content");
   }
   const author = typeof input.author === "string" ? input.author.trim() : "";
   const timestampText = typeof input.timestampText === "string" ? input.timestampText.trim() : "";
+  const timestampIso = normalizeTimestampIso(input.timestampIso);
   const messageId =
     typeof input.messageId === "string" && input.messageId.trim()
       ? input.messageId.trim()
@@ -113,9 +114,9 @@ export function validateAlertPayload(input) {
           sourceUrl: source.url,
           author,
           timestampText,
+          timestampIso,
           text,
           embeds,
-          labels,
           attachmentUrls
         });
   return {
@@ -124,6 +125,7 @@ export function validateAlertPayload(input) {
     messageId,
     author,
     timestampText,
+    timestampIso,
     text,
     embeds,
     labels,
@@ -156,9 +158,9 @@ function createFallbackMessageId(input) {
     sourceUrl: input.sourceUrl,
     author: input.author,
     timestampText: input.timestampText,
+    timestampIso: input.timestampIso,
     text: input.text,
     embeds: input.embeds,
-    labels: input.labels,
     attachmentUrls: input.attachmentUrls
   });
   let hash = 0;
@@ -166,6 +168,14 @@ function createFallbackMessageId(input) {
     hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
   }
   return `visible-${hash.toString(16)}`;
+}
+
+function normalizeTimestampIso(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return "";
+  }
+  const date = new Date(value.trim());
+  return Number.isFinite(date.getTime()) ? date.toISOString() : "";
 }
 
 export function createDedupeKey(payload) {
@@ -195,10 +205,6 @@ export function formatRepostMessage(payload, options = {}) {
       lines.push(`${field.name}: ${field.value}`);
     }
     if (embed.footer) lines.push(embed.footer);
-  }
-  if (valid.labels.length) {
-    lines.push("");
-    lines.push(`Labels: ${valid.labels.join(", ")}`);
   }
   if (valid.attachmentUrls.length) {
     lines.push("");

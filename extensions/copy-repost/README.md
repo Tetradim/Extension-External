@@ -27,7 +27,8 @@ The helper listens on `http://127.0.0.1:17654`. Every non-OPTIONS helper request
 4. Select `extensions/copy-repost`.
 5. Open the extension popup.
 6. Paste the helper token and choose **Save**.
-7. Open the configured source Discord channel pages in Chrome.
+7. Leave the freshness window at `10` minutes or set the desired recent-message window.
+8. Open the configured source Discord channel pages in Chrome.
 
 ## Runtime Boundaries
 
@@ -36,4 +37,6 @@ The helper listens on `http://127.0.0.1:17654`. Every non-OPTIONS helper request
 - Does not call hidden Discord APIs.
 - Does not bypass Discord channel permissions.
 - Posts only jobs returned by the local helper.
-- Attachments and images are included as visible URLs when the parser can see them.
+- Repost text includes source, author/time, copied body text, embeds, and visible attachment URLs.
+- Discord UI labels, profile badges, server tags, and button text are not included in reposts.
+- Source messages older than the popup freshness window are ignored before helper queueing.

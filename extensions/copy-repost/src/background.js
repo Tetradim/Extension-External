@@ -1,4 +1,4 @@
-importScripts("channel-routes.js");
+importScripts("channel-routes.js", "freshness.js");
 
 const helperBaseUrl = "http://127.0.0.1:17654";
 const clientId = "copy-repost-extension";
@@ -6,10 +6,12 @@ const pollAlarmName = "copy-repost-poll";
 const pollAlarmPeriodMinutes = 1;
 const configCacheTtlMs = 60_000;
 const discordTabLoadTimeoutMs = 90_000;
-const contentScriptVersion = "0.1.5";
+const contentScriptVersion = "0.1.6";
 const listenStorageKey = "listenChannelUrls";
 const postStorageKey = "postChannelUrls";
+const maxMessageAgeMinutesStorageKey = "maxMessageAgeMinutes";
 const routeHelpers = globalThis.CopyRepostChannelRoutes;
+const freshnessHelpers = globalThis.CopyRepostFreshness;
 
 let pollInFlight = false;
 let sourceConfigCache = null;
@@ -55,7 +57,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     return;
   }
 
-  if (changes.helperToken || changes.enabled || changes[listenStorageKey] || changes[postStorageKey]) {
+  if (
+    changes.helperToken ||
+    changes.enabled ||
+    changes[listenStorageKey] ||
+    changes[postStorageKey] ||
+    changes[maxMessageAgeMinutesStorageKey]
+  ) {
     sourceConfigCache = null;
     void ensurePollAlarm();
     void pollHelper();
@@ -63,7 +71,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 async function initializeStorageDefaults() {
-  const state = await chrome.storage.local.get(["enabled", "helperToken", listenStorageKey, postStorageKey]);
+  const state = await chrome.storage.local.get([
+    "enabled",
+    "helperToken",
+    listenStorageKey,
+    postStorageKey,
+    maxMessageAgeMinutesStorageKey
+  ]);
   const defaults = {
     lastStatus: "installed",
     lastStatusAt: new Date().toISOString()
@@ -85,11 +99,18 @@ async function initializeStorageDefaults() {
     defaults[postStorageKey] = [];
   }
 
+  if (typeof state[maxMessageAgeMinutesStorageKey] !== "number") {
+    defaults[maxMessageAgeMinutesStorageKey] = freshnessHelpers.defaultFreshnessWindowMinutes;
+  }
+
   await chrome.storage.local.set(defaults);
 }
 
 async function submitPayload(payload) {
-  const { enabled = true } = await chrome.storage.local.get("enabled");
+  const {
+    enabled = true,
+    maxMessageAgeMinutes = freshnessHelpers.defaultFreshnessWindowMinutes
+  } = await chrome.storage.local.get(["enabled", maxMessageAgeMinutesStorageKey]);
   if (!enabled) {
     await setStatus("disabled");
     return { ok: false, reason: "extension disabled" };
@@ -109,6 +130,12 @@ async function submitPayload(payload) {
     const source = payload?.sourceChannelId || payload?.sourceUrl || "unknown source";
     await setStatus(`ignored non-source channel: ${source}`);
     return { ok: true, ignored: true, reason: "ignored non-source channel" };
+  }
+
+  const freshness = freshnessHelpers.payloadFreshness(payload, { maxAgeMinutes: maxMessageAgeMinutes });
+  if (!freshness.fresh) {
+    await setStatus(`ignored stale message: ${freshness.reason}`);
+    return { ok: true, ignored: true, reason: freshness.reason, freshness };
   }
 
   const result = await helperFetch("/events", {

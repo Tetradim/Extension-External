@@ -24,6 +24,11 @@
         <span>Show token</span>
       </label>
 
+      <label class="field">
+        <span>Freshness window (minutes)</span>
+        <input id="max-message-age-minutes" type="number" min="1" max="1440" step="1">
+      </label>
+
       <section class="channel-section" aria-labelledby="listen-heading">
         <h2 id="listen-heading">Listen</h2>
         <label class="field">
@@ -74,6 +79,7 @@
       </div>
     </main>
     <script src="channel-routes.js"></script>
+    <script src="freshness.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

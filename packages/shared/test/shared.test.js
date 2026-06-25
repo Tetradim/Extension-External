@@ -74,6 +74,7 @@ test("validateAlertPayload requires visible source fields and content", () => {
     messageId: "999",
     author: "Alert Bot",
     timestampText: "Today at 12:00 PM",
+    timestampIso: "2026-06-25T18:59:00.000Z",
     text: "Entry alert",
     embeds: [{ title: "AAPL", description: "Breakout", fields: [{ name: "Price", value: "190" }] }],
     labels: ["Open Chart"],
@@ -82,6 +83,7 @@ test("validateAlertPayload requires visible source fields and content", () => {
   });
 
   assert.equal(payload.text, "Entry alert");
+  assert.equal(payload.timestampIso, "2026-06-25T18:59:00.000Z");
   assert.equal(payload.embeds[0].fields[0].name, "Price");
 });
 
@@ -116,6 +118,20 @@ test("validateAlertPayload rejects payloads without normalized visible content",
         ],
         labels: ["  "],
         attachmentUrls: [" "]
+      }),
+    /Alert payload must include visible content/
+  );
+});
+
+test("validateAlertPayload rejects label-only payloads", () => {
+  assert.throws(
+    () =>
+      validateAlertPayload({
+        sourceUrl: "https://discord.com/channels/111/222",
+        text: "",
+        embeds: [],
+        labels: ["Tetradim", "Server Tag: CASH CASH"],
+        attachmentUrls: []
       }),
     /Alert payload must include visible content/
   );
@@ -186,6 +202,7 @@ test("formatRepostMessage includes rich visible fields and degraded URL content"
   assert.match(message, /\[mirror\]/);
   assert.match(message, /Alert Bot/);
   assert.match(message, /AAPL/);
-  assert.match(message, /Open Chart/);
+  assert.doesNotMatch(message, /Labels:/);
+  assert.doesNotMatch(message, /Open Chart/);
   assert.match(message, /https:\/\/cdn.discordapp.com\/file.png/);
 });

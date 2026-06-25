@@ -1,5 +1,5 @@
 (function runDiscordCopyRepostContentScript() {
-  const contentScriptVersion = "0.1.5";
+  const contentScriptVersion = "0.1.6";
   if (window.__discordCopyRepostContentVersion === contentScriptVersion) {
     return;
   }
@@ -495,7 +495,6 @@
     return Boolean(
       payload?.text?.trim() ||
         payload?.embeds?.length ||
-        payload?.labels?.length ||
         payload?.attachmentUrls?.length
     );
   }

@@ -1,11 +1,14 @@
 const helperBaseUrl = "http://127.0.0.1:17654";
 const listenStorageKey = "listenChannelUrls";
 const postStorageKey = "postChannelUrls";
+const maxMessageAgeMinutesStorageKey = "maxMessageAgeMinutes";
 const routes = globalThis.CopyRepostChannelRoutes;
+const freshness = globalThis.CopyRepostFreshness;
 
 const enabledInput = document.querySelector("#enabled");
 const tokenInput = document.querySelector("#helper-token");
 const showTokenInput = document.querySelector("#show-token");
+const maxMessageAgeMinutesInput = document.querySelector("#max-message-age-minutes");
 const listenUrlInput = document.querySelector("#listen-url");
 const listenLockButton = document.querySelector("#listen-lock");
 const listenRevertButton = document.querySelector("#listen-revert");
@@ -46,11 +49,15 @@ async function loadState() {
     "helperToken",
     "lastStatus",
     "lastStatusAt",
+    maxMessageAgeMinutesStorageKey,
     listenStorageKey,
     postStorageKey
   ]);
   enabledInput.checked = state.enabled !== false;
   tokenInput.value = typeof state.helperToken === "string" ? state.helperToken : "";
+  maxMessageAgeMinutesInput.value = freshness.normalizeFreshnessWindowMinutes(
+    state[maxMessageAgeMinutesStorageKey]
+  );
   renderChannelState(state);
   renderLastStatus(state);
   await checkHealth(tokenInput.value);
@@ -58,12 +65,15 @@ async function loadState() {
 
 async function saveSettings() {
   const helperToken = tokenInput.value.trim();
+  const maxMessageAgeMinutes = freshness.normalizeFreshnessWindowMinutes(maxMessageAgeMinutesInput.value);
   await chrome.storage.local.set({
     enabled: enabledInput.checked,
     helperToken,
+    maxMessageAgeMinutes,
     lastStatus: "settings saved",
     lastStatusAt: new Date().toISOString()
   });
+  maxMessageAgeMinutesInput.value = maxMessageAgeMinutes;
   renderLastStatus({
     lastStatus: "settings saved",
     lastStatusAt: new Date().toISOString()

@@ -30,9 +30,10 @@
         ? `https://discord.com/channels/${source.guildId}/${source.channelId}`
         : pageUrl;
     const author = firstVisibleText(messageNode, ['[class*="username"]', '[class*="headerText"]']);
-    const timestampText = firstVisibleText(messageNode, ["time"]);
+    const timestampNode = firstNode(messageNode, ["time"]);
+    const timestampText = timestampNode && isVisible(timestampNode) ? normalizedText(timestampNode) : "";
+    const timestampIso = timestampIsoFromNode(timestampNode);
     const text = firstVisibleText(messageNode, ['[class*="markup"]']);
-    const labels = uniqueStrings(visibleTexts(messageNode, ["button", '[role="button"]', '[class*="button"]']));
     const attachmentUrls = uniqueStrings(queryAll(messageNode, ["a[href]"]).map(getHref).filter(isDiscordAttachmentUrl));
     const embeds = extractEmbeds(messageNode);
 
@@ -42,9 +43,10 @@
       messageId: extractMessageId(messageNode),
       author,
       timestampText,
+      timestampIso,
       text,
       embeds,
-      labels,
+      labels: [],
       attachmentUrls,
       capturedAt: new Date().toISOString()
     };
@@ -284,6 +286,23 @@
       }
     }
     return "";
+  }
+
+  function firstNode(root, selectors) {
+    for (const node of queryAll(root, selectors)) {
+      return node;
+    }
+    return null;
+  }
+
+  function timestampIsoFromNode(node) {
+    const rawTimestamp = getAttribute(node, "datetime") || getNodeProperty(node, "dateTime");
+    if (!rawTimestamp) {
+      return "";
+    }
+
+    const date = new Date(rawTimestamp);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : "";
   }
 
   function visibleTexts(root, selectors) {
