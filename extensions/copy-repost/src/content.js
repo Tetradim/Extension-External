@@ -1,8 +1,10 @@
 (function runDiscordCopyRepostContentScript() {
-  if (window.__discordCopyRepostContentLoaded) {
+  const contentScriptVersion = "0.1.2";
+  if (window.__discordCopyRepostContentVersion === contentScriptVersion) {
     return;
   }
   window.__discordCopyRepostContentLoaded = true;
+  window.__discordCopyRepostContentVersion = contentScriptVersion;
 
   const messageSelector = '[id^="chat-messages-"]';
   const composerSelectors = [
@@ -22,6 +24,7 @@
       normalizeComposerText,
       prepareComposerForTrustedInput,
       verifyComposerDraft,
+      contentScriptVersion,
       waitForComposer,
       waitForSendConfirmation
     };
@@ -30,7 +33,7 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === "ping") {
-      sendResponse({ ok: true });
+      sendResponse({ ok: true, version: contentScriptVersion });
       return false;
     }
 

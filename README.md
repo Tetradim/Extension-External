@@ -370,7 +370,7 @@ Copy that token into the copy/repost extension popup or pass it to the trading b
 9. Keep the extension enabled.
 10. Open each configured Discord source channel in Chrome.
 
-When updating an unpacked copy/repost extension, reload it from `chrome://extensions` after pulling code changes. Manifest, service worker, permission, and content-script changes are not applied reliably until the unpacked extension is reloaded.
+When updating an unpacked copy/repost extension, reload it from `chrome://extensions` after pulling code changes. Manifest, service worker, permission, and content-script changes are not applied reliably until the unpacked extension is reloaded. Current builds version-check the Discord content script and reinject the current script when an open Discord tab still has an older listener.
 
 The extension popup shows:
 
@@ -468,6 +468,11 @@ If Discord still reports `Discord tab did not finish loading` or `Discord compos
 - The extension refuses to overwrite normal user text already in the destination composer.
 - Extension-created repost drafts are replaced automatically after the current version is reloaded in Chrome.
 - If this error persists after reload, clear the composer and let the helper retry.
+
+`Unable to verify Discord send after Enter fallback`
+
+- The installed extension is still running the older content-script path.
+- Reload the unpacked extension in `chrome://extensions`; current builds use trusted input and content-script version checks instead.
 
 `Discord composer did not contain the expected repost text`
 

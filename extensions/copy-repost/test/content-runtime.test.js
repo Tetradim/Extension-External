@@ -163,6 +163,13 @@ test("send confirmation rejects non-empty changed composer text", async () => {
   assert.equal(confirmed, false);
 });
 
+test("content runtime exposes a version for background reinjection checks", async () => {
+  const { document } = createDocument();
+  const { runtime } = await loadContentRuntime(document);
+
+  assert.equal(runtime.contentScriptVersion, "0.1.2");
+});
+
 test("send confirmation accepts empty composer text", async () => {
   const { document, editor } = createDocument({ editorText: "" });
   const { runtime } = await loadContentRuntime(document);

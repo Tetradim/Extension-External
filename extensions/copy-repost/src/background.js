@@ -6,6 +6,7 @@ const pollAlarmName = "copy-repost-poll";
 const pollAlarmPeriodMinutes = 1;
 const configCacheTtlMs = 60_000;
 const discordTabLoadTimeoutMs = 90_000;
+const contentScriptVersion = "0.1.2";
 const listenStorageKey = "listenChannelUrls";
 const postStorageKey = "postChannelUrls";
 const routeHelpers = globalThis.CopyRepostChannelRoutes;
@@ -357,7 +358,7 @@ async function ensureContentScript(tabId) {
 async function pingContentScript(tabId) {
   try {
     const response = await chrome.tabs.sendMessage(tabId, { type: "ping" });
-    return response?.ok === true;
+    return response?.ok === true && response.version === contentScriptVersion;
   } catch {
     return false;
   }
