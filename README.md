@@ -474,6 +474,13 @@ If Discord still reports `Discord tab did not finish loading` or `Discord compos
 - The installed extension is still running the older content-script path.
 - Reload the unpacked extension in `chrome://extensions`; current builds use trusted input and content-script version checks instead.
 
+Unreadable or shaded `[copied-alert]` text in the Discord composer
+
+- This is a stale Discord rich-editor draft created by the older DOM/Enter fallback path.
+- It is not a confirmed repost.
+- Clear the destination composer, reload the unpacked extension, and submit a new source message.
+- Current builds reject the legacy `post-job` message path so stale service workers fail visibly instead of creating another malformed draft.
+
 `Discord composer did not contain the expected repost text`
 
 - Chrome trusted input did not reach the active Discord composer.

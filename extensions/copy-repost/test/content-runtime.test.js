@@ -167,7 +167,7 @@ test("content runtime exposes a version for background reinjection checks", asyn
   const { document } = createDocument();
   const { runtime } = await loadContentRuntime(document);
 
-  assert.equal(runtime.contentScriptVersion, "0.1.2");
+  assert.equal(runtime.contentScriptVersion, "0.1.3");
 });
 
 test("send confirmation accepts empty composer text", async () => {

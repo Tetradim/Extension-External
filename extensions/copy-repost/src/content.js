@@ -1,5 +1,5 @@
 (function runDiscordCopyRepostContentScript() {
-  const contentScriptVersion = "0.1.2";
+  const contentScriptVersion = "0.1.3";
   if (window.__discordCopyRepostContentVersion === contentScriptVersion) {
     return;
   }
@@ -38,10 +38,11 @@
     }
 
     if (message?.type === "post-job") {
-      postJobToComposer(message.job)
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ ok: false, reason: readableError(error) }));
-      return true;
+      sendResponse({
+        ok: false,
+        reason: "Stale copy/repost service worker: reload the unpacked extension."
+      });
+      return false;
     }
 
     if (message?.type === "prepare-composer") {
