@@ -447,6 +447,35 @@ test("HTTP API skips stale events before queueing", async () => {
   }
 });
 
+test("store skips duplicate visible source message when Discord replaces the message id", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "helper-visible-duplicate-"));
+  try {
+    const store = await createJsonStore(join(dir, "state.json"));
+    const first = await store.enqueueAlert(singleDestinationConfig, {
+      ...samplePayload,
+      messageId: "temporary-local-id",
+      author: "Tetradim",
+      timestampText: "[ 8:14 AM ]",
+      text: "Dedicated"
+    });
+    const second = await store.enqueueAlert(singleDestinationConfig, {
+      ...samplePayload,
+      messageId: "confirmed-server-id",
+      author: "Tetradim",
+      timestampText: "[ 8:14 AM ]",
+      text: "Dedicated"
+    });
+    const snapshot = await store.snapshot();
+
+    assert.equal(first.createdJobs.length, 1);
+    assert.equal(second.skippedDuplicate, true);
+    assert.equal(snapshot.jobs.length, 1);
+    assert.equal(snapshot.events.at(-1).type, "skipped_duplicate");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("HTTP API fails stale queued jobs instead of handing them to clients", async () => {
   const dir = await mkdtemp(join(tmpdir(), "helper-http-stale-queued-"));
   let server;

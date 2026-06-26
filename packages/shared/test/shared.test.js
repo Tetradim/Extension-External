@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createDedupeKey,
+  createVisibleDedupeKey,
   evaluatePayloadFreshness,
   formatRepostMessage,
   normalizeChannelUrl,
@@ -157,6 +158,27 @@ test("createDedupeKey is stable for the same source message", () => {
   });
 
   assert.equal(createDedupeKey(payload), "222:999");
+});
+
+test("createVisibleDedupeKey ignores Discord ID churn for the same visible message", () => {
+  const first = validateAlertPayload({
+    sourceUrl: "https://discord.com/channels/111/222",
+    sourceChannelId: "222",
+    messageId: "temporary-local-id",
+    author: "Tetradim",
+    timestampText: "[ 8:14 AM ]",
+    text: "Dedicated",
+    embeds: [],
+    labels: [],
+    attachmentUrls: []
+  });
+  const second = validateAlertPayload({
+    ...first,
+    messageId: "confirmed-server-id"
+  });
+
+  assert.equal(createVisibleDedupeKey(first), createVisibleDedupeKey(second));
+  assert.notEqual(createDedupeKey(first), createDedupeKey(second));
 });
 
 test("fallback message ids include rich visible content", () => {

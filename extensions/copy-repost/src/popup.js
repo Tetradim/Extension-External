@@ -41,6 +41,9 @@ saveButton.addEventListener("click", saveSettings);
 refreshButton.addEventListener("click", loadState);
 shutdownAllButton.addEventListener("click", shutdownAll);
 openDedicatedPostWindowButton.addEventListener("click", openDedicatedPostWindow);
+dedicatedPostWindowEnabledInput.addEventListener("change", saveLifecycleSettings);
+dedicatedPostWindowMinimizedInput.addEventListener("change", saveLifecycleSettings);
+closePostWindowsOnShutdownInput.addEventListener("change", saveLifecycleSettings);
 listenLockButton.addEventListener("click", lockListenUrl);
 listenRevertButton.addEventListener("click", revertListenUrl);
 listenRevertAllButton.addEventListener("click", revertAllListenUrls);
@@ -90,9 +93,7 @@ async function saveSettings() {
     enabled: enabledInput.checked,
     helperToken,
     maxMessageAgeMinutes,
-    [destinationWindowKeys.dedicatedPostWindowEnabled]: dedicatedPostWindowEnabledInput.checked,
-    [destinationWindowKeys.dedicatedPostWindowMinimized]: dedicatedPostWindowMinimizedInput.checked,
-    [destinationWindowKeys.closePostWindowsOnShutdown]: closePostWindowsOnShutdownInput.checked,
+    ...currentLifecycleSettings(),
     lastStatus: "settings saved",
     lastStatusAt: new Date().toISOString()
   });
@@ -102,6 +103,23 @@ async function saveSettings() {
     lastStatusAt: new Date().toISOString()
   });
   await checkHealth(helperToken);
+}
+
+async function saveLifecycleSettings() {
+  await chrome.storage.local.set({
+    ...currentLifecycleSettings(),
+    lastStatus: "lifecycle settings saved",
+    lastStatusAt: new Date().toISOString()
+  });
+  setMessage(lifecycleMessage, "Lifecycle settings saved", "ok");
+}
+
+function currentLifecycleSettings() {
+  return {
+    [destinationWindowKeys.dedicatedPostWindowEnabled]: dedicatedPostWindowEnabledInput.checked,
+    [destinationWindowKeys.dedicatedPostWindowMinimized]: dedicatedPostWindowMinimizedInput.checked,
+    [destinationWindowKeys.closePostWindowsOnShutdown]: closePostWindowsOnShutdownInput.checked
+  };
 }
 
 async function shutdownAll() {
@@ -119,13 +137,12 @@ async function shutdownAll() {
 }
 
 async function openDedicatedPostWindow() {
-  await chrome.storage.local.set({
-    [destinationWindowKeys.dedicatedPostWindowEnabled]: dedicatedPostWindowEnabledInput.checked,
-    [destinationWindowKeys.dedicatedPostWindowMinimized]: dedicatedPostWindowMinimizedInput.checked,
-    [destinationWindowKeys.closePostWindowsOnShutdown]: closePostWindowsOnShutdownInput.checked
-  });
+  await saveLifecycleSettings();
   try {
-    const response = await chrome.runtime.sendMessage({ type: "open-dedicated-post-window" });
+    const response = await chrome.runtime.sendMessage({
+      type: "open-dedicated-post-window",
+      requestedPostUrl: postUrlInput.value
+    });
     setMessage(
       lifecycleMessage,
       response?.ok ? `Opened ${shortUrl(response.url)}` : response?.reason || "Open failed",

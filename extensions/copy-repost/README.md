@@ -52,3 +52,4 @@ Reload the unpacked extension after installing the native host. With native life
 - Source messages older than the popup freshness window are ignored before helper queueing.
 - If helper config also enables `freshness`, stale queued jobs are failed server-side instead of being handed back to the extension.
 - Dedicated post-window mode routes destination jobs through a managed same-profile Chrome window so reposting does not activate destination tabs in the main Chrome workspace.
+- Duplicate suppression uses both Discord message IDs and a visible-message signature, so Discord replacing a temporary local message node with the confirmed server message does not create a second repost.

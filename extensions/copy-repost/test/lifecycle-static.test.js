@@ -28,3 +28,18 @@ test("popup exposes shutdown and dedicated post window controls", async () => {
   assert.match(popup, /id="close-post-windows-on-shutdown"/);
   assert.match(popup, /id="open-dedicated-post-window"/);
 });
+
+test("popup auto-saves dedicated window checkbox changes", async () => {
+  const popup = await readFile("extensions/copy-repost/src/popup.js", "utf8");
+
+  assert.match(popup, /dedicatedPostWindowEnabledInput\.addEventListener\("change", saveLifecycleSettings\)/);
+  assert.match(popup, /dedicatedPostWindowMinimizedInput\.addEventListener\("change", saveLifecycleSettings\)/);
+  assert.match(popup, /closePostWindowsOnShutdownInput\.addEventListener\("change", saveLifecycleSettings\)/);
+});
+
+test("background creates post windows normally before minimizing them", async () => {
+  const background = await readFile("extensions/copy-repost/src/background.js", "utf8");
+
+  assert.doesNotMatch(background, /chrome\.windows\.create\(\{[\s\S]*state:\s*windowState\.dedicatedPostWindowMinimized\s*\?/);
+  assert.match(background, /await maybeMinimizeManagedWindow\(createdWindow\.id, windowState\)/);
+});

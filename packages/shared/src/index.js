@@ -183,6 +183,18 @@ function createFallbackMessageId(input) {
   return `visible-${hash.toString(16)}`;
 }
 
+function hashString(value) {
+  let hash = 0;
+  for (const character of String(value || "")) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  return hash.toString(16);
+}
+
+function normalizeVisibleText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
 function normalizeTimestampIso(value) {
   if (typeof value !== "string" || !value.trim()) {
     return "";
@@ -194,6 +206,29 @@ function normalizeTimestampIso(value) {
 export function createDedupeKey(payload) {
   const valid = validateAlertPayload(payload);
   return `${valid.sourceChannelId}:${valid.messageId}`;
+}
+
+export function createVisibleDedupeKey(payload) {
+  const valid = validateAlertPayload(payload);
+  return `${valid.sourceChannelId}:visible:${hashString(
+    JSON.stringify({
+      sourceUrl: valid.sourceUrl,
+      author: normalizeVisibleText(valid.author),
+      timestampText: normalizeVisibleText(valid.timestampText),
+      timestampIso: valid.timestampIso,
+      text: normalizeVisibleText(valid.text),
+      embeds: valid.embeds.map((embed) => ({
+        title: normalizeVisibleText(embed.title),
+        description: normalizeVisibleText(embed.description),
+        fields: embed.fields.map((field) => ({
+          name: normalizeVisibleText(field.name),
+          value: normalizeVisibleText(field.value)
+        })),
+        footer: normalizeVisibleText(embed.footer)
+      })),
+      attachmentUrls: valid.attachmentUrls
+    })
+  )}`;
 }
 
 export function formatRepostMessage(payload, options = {}) {

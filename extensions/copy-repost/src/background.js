@@ -7,7 +7,7 @@ const pollAlarmName = "copy-repost-poll";
 const pollAlarmPeriodMinutes = 1;
 const configCacheTtlMs = 60_000;
 const discordTabLoadTimeoutMs = 90_000;
-const contentScriptVersion = "0.1.6";
+const contentScriptVersion = "0.1.8";
 const listenStorageKey = "listenChannelUrls";
 const postStorageKey = "postChannelUrls";
 const maxMessageAgeMinutesStorageKey = "maxMessageAgeMinutes";
@@ -64,7 +64,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "open-dedicated-post-window") {
-    openDedicatedPostWindowFromPopup()
+    openDedicatedPostWindowFromPopup(message)
       .then((result) => sendResponse(result))
       .catch((error) => sendResponse({ ok: false, reason: readableError(error) }));
     return true;
@@ -548,7 +548,7 @@ async function openOrReuseDestinationTab(destinationUrl) {
   return tab;
 }
 
-async function openDedicatedPostWindowFromPopup() {
+async function openDedicatedPostWindowFromPopup(message = {}) {
   const state = await chrome.storage.local.get([
     postStorageKey,
     destinationWindowKeys.dedicatedPostWindowEnabled,
@@ -559,7 +559,7 @@ async function openDedicatedPostWindowFromPopup() {
   ]);
   const destinationUrl = destinationWindowHelpers.choosePostWindowUrl({
     postChannelUrls: state[postStorageKey],
-    fallbackUrl: ""
+    fallbackUrl: message.requestedPostUrl || ""
   });
   const windowState = {
     ...destinationWindowHelpers.normalizeDedicatedWindowState(state),
@@ -599,18 +599,32 @@ async function openOrReuseDedicatedDestinationTab(destinationUrl, windowState) {
     return tab;
   }
 
-  const createdWindow = await chrome.windows.create({
-    url: normalized.url,
-    type: "normal",
-    focused: false,
-    state: windowState.dedicatedPostWindowMinimized ? "minimized" : "normal"
-  });
+  const createdWindow = await createManagedDestinationWindow(normalized.url);
+  if (!createdWindow?.id) {
+    throw new Error("Dedicated post window opened without a Chrome window id");
+  }
+  await maybeMinimizeManagedWindow(createdWindow.id, windowState);
   const tab = createdWindow.tabs?.[0] || (await chrome.tabs.query({ windowId: createdWindow.id })).at(0);
   if (!tab?.id) {
     throw new Error("Dedicated post window opened without a Discord tab");
   }
   await trackManagedDestinationSurface({ windowId: createdWindow.id, tabIds: [tab.id] });
   return tab;
+}
+
+async function createManagedDestinationWindow(url) {
+  try {
+    return await chrome.windows.create({
+      url,
+      type: "normal",
+      focused: false
+    });
+  } catch {
+    return chrome.windows.create({
+      url,
+      type: "normal"
+    });
+  }
 }
 
 async function getManagedDestinationWindow(windowId) {

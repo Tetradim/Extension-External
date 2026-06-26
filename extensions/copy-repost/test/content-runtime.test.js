@@ -170,7 +170,32 @@ test("content runtime exposes a version for background reinjection checks", asyn
   const { document } = createDocument();
   const { runtime } = await loadContentRuntime(document);
 
-  assert.equal(runtime.contentScriptVersion, "0.1.6");
+  assert.equal(runtime.contentScriptVersion, "0.1.8");
+});
+
+test("content runtime keys the same visible source message independently of Discord id churn", async () => {
+  const { document } = createDocument();
+  const { runtime } = await loadContentRuntime(document);
+  const first = runtime.payloadKey({
+    sourceChannelId: "1518453268169101402",
+    messageId: "temporary-local-id",
+    author: "Tetradim",
+    timestampText: "[ 8:14 AM ]",
+    text: "Dedicated",
+    embeds: [],
+    attachmentUrls: []
+  });
+  const second = runtime.payloadKey({
+    sourceChannelId: "1518453268169101402",
+    messageId: "confirmed-server-id",
+    author: "Tetradim",
+    timestampText: "[ 8:14 AM ]",
+    text: "Dedicated",
+    embeds: [],
+    attachmentUrls: []
+  });
+
+  assert.equal(first, second);
 });
 
 test("send confirmation accepts empty composer text", async () => {

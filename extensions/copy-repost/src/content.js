@@ -1,5 +1,5 @@
 (function runDiscordCopyRepostContentScript() {
-  const contentScriptVersion = "0.1.6";
+  const contentScriptVersion = "0.1.8";
   if (window.__discordCopyRepostContentVersion === contentScriptVersion) {
     return;
   }
@@ -23,6 +23,7 @@
       captureVisibleMessageKeys,
       messageNodeTextMatches,
       messageNodesForAddedNode,
+      payloadKey,
       normalizeComposerText,
       prepareComposerForTrustedInput,
       verifyComposerDraft,
@@ -500,7 +501,48 @@
   }
 
   function payloadKey(payload) {
-    return `${payload.sourceChannelId || "unknown"}:${payload.messageId || ""}`;
+    return `${payload.sourceChannelId || "unknown"}:visible:${hashString(
+      JSON.stringify({
+        sourceUrl: discordChannelPrefix(payload?.sourceUrl || location.href),
+        author: normalizeVisibleText(payload?.author),
+        timestampText: normalizeVisibleText(payload?.timestampText),
+        timestampIso: typeof payload?.timestampIso === "string" ? payload.timestampIso.trim() : "",
+        text: normalizeVisibleText(payload?.text),
+        embeds: normalizeVisibleEmbeds(payload?.embeds),
+        attachmentUrls: Array.isArray(payload?.attachmentUrls)
+          ? payload.attachmentUrls.filter((url) => typeof url === "string").map((url) => url.trim()).filter(Boolean)
+          : []
+      })
+    )}`;
+  }
+
+  function normalizeVisibleEmbeds(embeds) {
+    if (!Array.isArray(embeds)) {
+      return [];
+    }
+    return embeds.map((embed) => ({
+      title: normalizeVisibleText(embed?.title),
+      description: normalizeVisibleText(embed?.description),
+      fields: Array.isArray(embed?.fields)
+        ? embed.fields.map((field) => ({
+            name: normalizeVisibleText(field?.name),
+            value: normalizeVisibleText(field?.value)
+          }))
+        : [],
+      footer: normalizeVisibleText(embed?.footer)
+    }));
+  }
+
+  function normalizeVisibleText(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function hashString(value) {
+    let hash = 0;
+    for (const character of String(value || "")) {
+      hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+    }
+    return hash.toString(16);
   }
 
   function messageNodeKey(messageNode) {

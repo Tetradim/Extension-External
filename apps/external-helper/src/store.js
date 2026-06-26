@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rename } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   createDedupeKey,
+  createVisibleDedupeKey,
   formatRepostMessage,
   validateAlertPayload,
   validateConfig
@@ -80,13 +81,15 @@ export async function createJsonStore(filePath) {
       const validConfig = validateConfig(config);
       const payload = validateAlertPayload(payloadInput);
       const dedupeKey = createDedupeKey(payload);
+      const visibleDedupeKey = createVisibleDedupeKey(payload);
       const now = new Date();
 
-      if (state.seen[dedupeKey]) {
+      if (state.seen[dedupeKey] || state.seen[visibleDedupeKey]) {
         appendEvent(
           "skipped_duplicate",
           {
             dedupeKey,
+            visibleDedupeKey,
             sourceChannelId: payload.sourceChannelId,
             messageId: payload.messageId
           },
@@ -149,6 +152,11 @@ export async function createJsonStore(filePath) {
         );
       } else {
         state.seen[dedupeKey] = {
+          sourceChannelId: payload.sourceChannelId,
+          messageId: payload.messageId,
+          seenAt: now.toISOString()
+        };
+        state.seen[visibleDedupeKey] = {
           sourceChannelId: payload.sourceChannelId,
           messageId: payload.messageId,
           seenAt: now.toISOString()

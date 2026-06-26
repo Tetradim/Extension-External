@@ -58,6 +58,7 @@ The helper is a local Node.js HTTP service bound to `127.0.0.1`. It owns the can
 - source-to-destination mappings
 - helper auth token enforcement
 - alert dedupe
+- visible-message duplicate suppression when Discord changes a message node ID
 - one queued job per destination channel
 - retry timing and max attempts
 - job leases for extension workers
@@ -271,7 +272,7 @@ The copy/repost extension also uses `timestampIso` to prevent old channel histor
 
 When helper `freshness.enabled` is true, the same stale-source rule is enforced again in the local helper. This second guard prevents stale jobs already stored in `state.json`, or submissions from an older extension build, from being reposted.
 
-The shared package derives `sourceChannelId` from `sourceUrl`. The helper dedupes by source channel and message ID. When a real Discord message ID is unavailable, the parser uses stable DOM-derived fallbacks for the current page session.
+The shared package derives `sourceChannelId` from `sourceUrl`. The helper dedupes by source channel and message ID, and also by a visible-message signature made from source, author/time, body, embeds, and attachment URLs. That second signature prevents double posts when Discord briefly exposes both a temporary local message node and the confirmed server message node with different IDs. When a real Discord message ID is unavailable, the parser uses stable DOM-derived fallbacks for the current page session.
 
 ## Helper HTTP API
 
@@ -435,12 +436,12 @@ The extension popup shows:
 
 The popup lifecycle controls include:
 
-- **Use dedicated post window**: routes destination jobs to an extension-managed Chrome window.
+- **Use dedicated post window**: routes destination jobs to an extension-managed Chrome window. This setting is saved immediately when toggled.
 - **Keep post window minimized**: minimizes that managed window after opening or selecting a destination tab.
 - **Close post window on shutdown**: closes only managed destination windows/tabs when **Shutdown** is pressed.
 - **Open Post Window**: opens the latest locked Post URL in the managed post window.
 
-The dedicated post window uses the same Chrome profile as the rest of Chrome. It does not require a second Discord login and does not create a second extension instance. When dedicated mode is enabled, the extension does not activate destination tabs in the user's main Chrome window.
+The dedicated post window uses the same Chrome profile as the rest of Chrome. It does not require a second Discord login and does not create a second extension instance. The extension creates the managed window normally, then minimizes it when requested; this avoids Chrome rejecting direct minimized-window creation. When dedicated mode is enabled, the extension does not activate destination tabs in the user's main Chrome window.
 
 ### Popup Channel Inputs
 
