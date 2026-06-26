@@ -13,6 +13,7 @@ test("background wires native host startup and shutdown commands", async () => {
   const background = await readFile("extensions/copy-repost/src/background.js", "utf8");
 
   assert.match(background, /com\.tetradim\.discord_copy_repost/);
+  assert.match(background, /source-routing\.js/);
   assert.match(background, /connectNative/);
   assert.match(background, /launch-helper/);
   assert.match(background, /launchHelper/);

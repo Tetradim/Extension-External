@@ -121,7 +121,7 @@ The background worker:
 - reads `/config` from the helper
 - connects to the native messaging launcher when installed
 - starts or adopts the local helper through the native launcher when the extension starts
-- prefers popup-managed Listen/Post routes when any popup channel URLs are locked
+- uses popup-managed Listen/Post routes for matching popup Listen sources, while keeping helper config active for other sources
 - filters source observations before calling `/events`
 - drops source observations outside the configured freshness window before calling `/events`
 - uses `chrome.alarms` for MV3-compatible polling
@@ -170,10 +170,11 @@ The easiest runtime setup is now through the Copy/Repost extension popup:
 - Add source channels under **Listen**.
 - Add destination channels under **Post**.
 - The extension stores those URLs in `chrome.storage.local`.
-- When popup routes exist, the extension sends matching alert events to the helper with runtime mappings.
+- When a source matches a popup Listen URL, the extension sends that event to the helper with popup runtime mappings.
+- When a source does not match a popup Listen URL, the extension falls back to the helper file config for that source.
 - The helper still owns dedupe, queueing, retries, and job state.
 
-The helper file config remains useful for scripted setups and fallback operation when no popup routes are saved.
+The helper file config remains useful for scripted setups and for sources not covered by popup Listen URLs. Popup routes override helper config only for the same source channel, preventing accidental duplicate routes from one source into multiple destinations.
 
 Create a local config file for real channels:
 
@@ -468,7 +469,7 @@ The **Post** input stores destination channel URLs.
 - Typing or pasting a new URL removes the locked styling so another destination can be added.
 - **Revert** removes only the most recently locked Post URL and shows the previous saved Post URL when one exists.
 
-Popup routes are active as soon as at least one Listen or Post URL is saved. If Listen URLs exist but no Post URL exists, matching alerts are not submitted and the extension status reports that no post channels are configured.
+Popup routes are active for channels saved under **Listen** when at least one **Post** URL is saved. For a source channel that is not saved under **Listen**, the extension uses the helper file config instead. If a Listen URL is saved without any Post URL, that popup route is ignored until a Post URL is added.
 
 The **Freshness window** controls how far back the extension may copy messages from a source Discord channel. The default is `10` minutes. The accepted range is `1` to `1440` minutes. This filter is applied in the background worker before helper queueing, so opening a channel with older visible history does not create repost jobs for stale messages. Use `1` minute when you want near-new-only testing after opening a channel.
 
@@ -488,7 +489,7 @@ If Discord still reports `Discord tab did not finish loading` or `Discord compos
 2. `extensions/copy-repost/src/content.js` observes visible message nodes.
 3. `src/parser.js` extracts visible alert data.
 4. The content script sends the payload to `src/background.js`.
-5. The background worker loads `/config` and drops payloads that do not match enabled source mappings.
+5. The background worker loads `/config`, applies popup routes for matching popup Listen sources, and otherwise uses helper config mappings.
 6. The background worker drops payloads older than the configured freshness window.
 7. The background worker submits matching fresh payloads to `POST /events`.
 8. The helper dedupes the source message and creates one `queued` job per destination URL.
@@ -522,8 +523,8 @@ If Discord still reports `Discord tab did not finish loading` or `Discord compos
 
 `ignored non-source channel`
 
-- The content script saw a Discord message, but helper config does not list that channel as an enabled source.
-- Check `sourceUrl` in `config.local.json`.
+- The content script saw a Discord message, but neither the popup Listen URLs nor helper config list that channel as an enabled source.
+- Check the popup Stored Listen URLs and `sourceUrl` in `config.local.json`.
 
 `ignored stale message`
 

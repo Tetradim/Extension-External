@@ -1,4 +1,4 @@
-importScripts("channel-routes.js", "freshness.js", "destination-window.js");
+importScripts("channel-routes.js", "freshness.js", "destination-window.js", "source-routing.js");
 
 const helperBaseUrl = "http://127.0.0.1:17654";
 const clientId = "copy-repost-extension";
@@ -15,6 +15,7 @@ const launcherStatusStorageKey = "launcherStatus";
 const routeHelpers = globalThis.CopyRepostChannelRoutes;
 const freshnessHelpers = globalThis.CopyRepostFreshness;
 const destinationWindowHelpers = globalThis.CopyRepostDestinationWindow;
+const sourceRoutingHelpers = globalThis.CopyRepostSourceRouting;
 const destinationWindowKeys = destinationWindowHelpers.keys;
 
 let pollInFlight = false;
@@ -189,7 +190,8 @@ async function submitPayload(payload) {
     return { ok: false, reason: status };
   }
 
-  if (!isAllowedSourcePayload(payload, sourceConfig)) {
+  const submission = sourceRoutingHelpers.selectSubmissionForPayload(payload, sourceConfig);
+  if (!submission.allowed) {
     const source = payload?.sourceChannelId || payload?.sourceUrl || "unknown source";
     await setStatus(`ignored non-source channel: ${source}`);
     return { ok: true, ignored: true, reason: "ignored non-source channel" };
@@ -203,15 +205,12 @@ async function submitPayload(payload) {
 
   const result = await helperFetch("/events", {
     method: "POST",
-    body: sourceConfig.runtimeMappings
-      ? {
-          alert: payload,
-          mappings: sourceConfig.runtimeMappings
-        }
-      : payload
+    body: submission.body
   });
   const createdCount = Array.isArray(result?.createdJobs) ? result.createdJobs.length : 0;
-  await setStatus(result?.skippedDuplicate ? "event skipped duplicate" : `event submitted (${createdCount} jobs)`);
+  await setStatus(
+    result?.skippedDuplicate ? "event skipped duplicate" : `event submitted (${createdCount} jobs, ${submission.mode})`
+  );
   return { ok: true, result };
 }
 
@@ -799,71 +798,25 @@ async function getEnabledSourceConfig() {
     return sourceConfigCache;
   }
 
-  if (usesPopupRoutes) {
-    if (listenUrls.length > 0 && postUrls.length === 0) {
-      throw new Error("no post channels configured");
-    }
-
-    const runtimeConfig = routeHelpers.buildRuntimeConfig({
+  const helperConfig = await helperFetch("/config");
+  let runtimeMappings = [];
+  if (listenUrls.length > 0 && postUrls.length > 0) {
+    runtimeMappings = routeHelpers.buildRuntimeConfig({
       listenChannelUrls: listenUrls,
       postChannelUrls: postUrls
-    });
-    const enabledSources = extractEnabledSources(runtimeConfig);
-    sourceConfigCache = {
-      token,
-      cacheKey,
-      expiresAt: now + configCacheTtlMs,
-      runtimeMappings: runtimeConfig.mappings,
-      ...enabledSources
-    };
-    return sourceConfigCache;
+    }).mappings;
   }
 
-  const config = await helperFetch("/config");
-  const enabledSources = extractEnabledSources(config);
   sourceConfigCache = {
     token,
     cacheKey,
     expiresAt: now + configCacheTtlMs,
-    ...enabledSources
+    ...sourceRoutingHelpers.buildSourceConfig({
+      helperConfig,
+      runtimeMappings
+    })
   };
   return sourceConfigCache;
-}
-
-function extractEnabledSources(config) {
-  const sourceChannelIds = new Set();
-  const sourceUrls = new Set();
-  if (config?.enabled === false || !Array.isArray(config?.mappings)) {
-    return { sourceChannelIds, sourceUrls };
-  }
-
-  for (const mapping of config.mappings) {
-    if (!mapping || mapping.enabled === false) {
-      continue;
-    }
-
-    const sourceChannelId = normalizeSourceChannelId(mapping.sourceChannelId);
-    if (sourceChannelId) {
-      sourceChannelIds.add(sourceChannelId);
-    }
-
-    const sourceUrl = discordChannelPrefix(mapping.sourceUrl);
-    if (sourceUrl) {
-      sourceUrls.add(sourceUrl);
-    }
-  }
-
-  return { sourceChannelIds, sourceUrls };
-}
-
-function isAllowedSourcePayload(payload, sourceConfig) {
-  const sourceChannelId = normalizeSourceChannelId(payload?.sourceChannelId);
-  if (sourceChannelId && sourceConfig.sourceChannelIds.has(sourceChannelId)) {
-    return true;
-  }
-
-  const sourceUrl = discordChannelPrefix(payload?.sourceUrl);
-  return Boolean(sourceUrl && sourceConfig.sourceUrls.has(sourceUrl));
 }
 
 async function helperFetch(path, options = {}) {
@@ -930,10 +883,6 @@ function normalizeJob(response) {
 
 function normalizeToken(token) {
   return typeof token === "string" ? token.trim() : "";
-}
-
-function normalizeSourceChannelId(sourceChannelId) {
-  return typeof sourceChannelId === "string" ? sourceChannelId.trim() : "";
 }
 
 function isDiscordChannelUrl(rawUrl) {

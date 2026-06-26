@@ -52,6 +52,7 @@ The installer registers a compiled native launcher executable with Chrome Native
 - Repost text includes source, author/time, copied body text, embeds, and visible attachment URLs.
 - Discord UI labels, profile badges, server tags, and button text are not included in reposts.
 - Source messages older than the popup freshness window are ignored before helper queueing.
+- Popup Listen/Post routes override helper config only for matching popup Listen sources; other sources still use helper config mappings.
 - If helper config also enables `freshness`, stale queued jobs are failed server-side instead of being handed back to the extension.
 - Dedicated post-window mode routes destination jobs through a managed same-profile Chrome window so reposting does not activate destination tabs in the main Chrome workspace.
 - Duplicate suppression uses both Discord message IDs and a visible-message signature. The visible signature ignores Discord's exact seconds-level timestamp, so the same visible alert body from the same source/author/minute does not create a second repost when Discord reports separate message IDs.
