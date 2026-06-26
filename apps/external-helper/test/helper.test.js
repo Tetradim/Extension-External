@@ -476,6 +476,37 @@ test("store skips duplicate visible source message when Discord replaces the mes
   }
 });
 
+test("store skips same visible alert when Discord reports different seconds-level timestamps", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "helper-visible-timestamp-duplicate-"));
+  try {
+    const store = await createJsonStore(join(dir, "state.json"));
+    const first = await store.enqueueAlert(singleDestinationConfig, {
+      ...samplePayload,
+      messageId: "1520064533064843264",
+      author: "Tetradim",
+      timestampText: "— 8:53 AM",
+      timestampIso: "2026-06-26T13:53:46.117Z",
+      text: "tester"
+    });
+    const second = await store.enqueueAlert(singleDestinationConfig, {
+      ...samplePayload,
+      messageId: "1520064527658520646",
+      author: "Tetradim",
+      timestampText: "— 8:53 AM",
+      timestampIso: "2026-06-26T13:53:44.827Z",
+      text: "tester"
+    });
+    const snapshot = await store.snapshot();
+
+    assert.equal(first.createdJobs.length, 1);
+    assert.equal(second.skippedDuplicate, true);
+    assert.equal(snapshot.jobs.length, 1);
+    assert.equal(snapshot.events.at(-1).type, "skipped_duplicate");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("HTTP API fails stale queued jobs instead of handing them to clients", async () => {
   const dir = await mkdtemp(join(tmpdir(), "helper-http-stale-queued-"));
   let server;

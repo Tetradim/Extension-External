@@ -215,7 +215,6 @@ export function createVisibleDedupeKey(payload) {
       sourceUrl: valid.sourceUrl,
       author: normalizeVisibleText(valid.author),
       timestampText: normalizeVisibleText(valid.timestampText),
-      timestampIso: valid.timestampIso,
       text: normalizeVisibleText(valid.text),
       embeds: valid.embeds.map((embed) => ({
         title: normalizeVisibleText(embed.title),

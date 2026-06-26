@@ -272,7 +272,7 @@ The copy/repost extension also uses `timestampIso` to prevent old channel histor
 
 When helper `freshness.enabled` is true, the same stale-source rule is enforced again in the local helper. This second guard prevents stale jobs already stored in `state.json`, or submissions from an older extension build, from being reposted.
 
-The shared package derives `sourceChannelId` from `sourceUrl`. The helper dedupes by source channel and message ID, and also by a visible-message signature made from source, author/time, body, embeds, and attachment URLs. That second signature prevents double posts when Discord briefly exposes both a temporary local message node and the confirmed server message node with different IDs. When a real Discord message ID is unavailable, the parser uses stable DOM-derived fallbacks for the current page session.
+The shared package derives `sourceChannelId` from `sourceUrl`. The helper dedupes by source channel and message ID, and also by a visible-message signature made from source, author/minute, body, embeds, and attachment URLs. The visible signature intentionally ignores Discord's exact seconds-level timestamp so two otherwise identical alerts observed a second or two apart do not create duplicate reposts. That second signature prevents double posts when Discord briefly exposes both a temporary local message node and the confirmed server message node with different IDs. When a real Discord message ID is unavailable, the parser uses stable DOM-derived fallbacks for the current page session.
 
 ## Helper HTTP API
 

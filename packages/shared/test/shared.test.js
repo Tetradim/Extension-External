@@ -181,6 +181,29 @@ test("createVisibleDedupeKey ignores Discord ID churn for the same visible messa
   assert.notEqual(createDedupeKey(first), createDedupeKey(second));
 });
 
+test("createVisibleDedupeKey ignores exact timestamp seconds for the same visible alert", () => {
+  const first = validateAlertPayload({
+    sourceUrl: "https://discord.com/channels/111/222",
+    sourceChannelId: "222",
+    messageId: "1520064533064843264",
+    author: "Tetradim",
+    timestampText: "— 8:53 AM",
+    timestampIso: "2026-06-26T13:53:46.117Z",
+    text: "tester",
+    embeds: [],
+    labels: [],
+    attachmentUrls: []
+  });
+  const second = validateAlertPayload({
+    ...first,
+    messageId: "1520064527658520646",
+    timestampIso: "2026-06-26T13:53:44.827Z"
+  });
+
+  assert.equal(createVisibleDedupeKey(first), createVisibleDedupeKey(second));
+  assert.notEqual(createDedupeKey(first), createDedupeKey(second));
+});
+
 test("fallback message ids include rich visible content", () => {
   const first = validateAlertPayload({
     sourceUrl: "https://discord.com/channels/111/222",
