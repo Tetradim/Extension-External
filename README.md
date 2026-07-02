@@ -6,7 +6,7 @@ The repo contains three user-facing pieces:
 
 1. `apps/external-helper`: local queue, configuration, retry, auth, and status service.
 2. `extensions/copy-repost`: Chrome extension that watches configured Discord source channels and recreates alerts in configured destination channels.
-3. `extensions/trading-bridge`: integration surface for the trading bridge Chrome extension currently installed on trading bots.
+3. `extensions/trading-bridge`: Chrome extension that observes selected Discord Web channels and forwards visible alerts to local trading bot bridge endpoints.
 
 `packages/shared` supports those pieces with shared validation, Discord channel URL parsing, dedupe keys, and repost message formatting.
 
@@ -38,7 +38,7 @@ Discord web source tab
   -> apps/external-helper /jobs/:id/result
 ```
 
-The Sentinel Link Trading Bridge uses the same helper event endpoint:
+The Sentinel Link Trading Bridge can optionally use the same helper event endpoint through `helper-client.js`:
 
 ```text
 Trading bridge parser
@@ -139,13 +139,15 @@ Before it posts, the content script verifies it is on the same Discord channel a
 
 Path: `extensions/trading-bridge`
 
-This directory is for the trading bridge Chrome extension currently installed on trading bots. It provides:
+This directory is the loadable Trading Bridge Chrome extension currently installed on trading bots. It provides:
 
-- `helper-client.js`: dependency-free browser-global client for the helper `/events` endpoint.
-- `README.md`: integration notes for content scripts and MV3 background service workers.
+- `manifest.json`, `service_worker.js`, `content.js`, and popup files: the bridge runtime loaded by Chrome.
+- `bridge_config.js`: target normalization, channel filtering, and local Sentinel Echo fallback URL helpers.
+- `helper-client.js`: dependency-free browser-global client for optional helper `/events` submissions.
+- `README.md`: installation, target configuration, behavior, and helper-client notes.
 - `test/helper-client.test.js`: token, storage fallback, and helper error tests.
 
-The trading bridge integration does not replace the existing installed extension. Place the installed extension source in `extensions/trading-bridge`, preserve its manifest/runtime files, load `helper-client.js`, and call:
+The Trading Bridge forwards to bot `/api/discord/chrome-bridge/message` and `/api/discord/chrome-bridge/heartbeat` endpoints. It watches only Discord messages rendered in Chrome tabs that match at least one enabled target. If the bridge also needs to submit to the Sentinel Link helper, load `helper-client.js` and call:
 
 ```javascript
 await window.TradingBridgeHelperClient.submitTradingBridgeAlert(payload, {

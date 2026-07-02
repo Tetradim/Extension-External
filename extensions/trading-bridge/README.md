@@ -1,55 +1,124 @@
-# Sentinel Link Trading Bridge
+# Trading Bridge
 
-This directory is for the trading bridge Chrome extension currently installed on trading bots.
+This unpacked Chrome extension observes messages rendered in selected Discord Web channels and forwards them to one or more local bot backends.
 
-## Helper Event Endpoint
-
-The local helper accepts normalized alert payloads at:
+The default target remains Sentinel Echo:
 
 ```text
-POST http://127.0.0.1:17654/events
+http://127.0.0.1:8003/api/discord/chrome-bridge/message
+http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat
 ```
 
-Every non-OPTIONS helper call requires the `x-helper-token` header. The token comes from `HELPER_TOKEN` when the helper is started, or from the random helper startup log when `HELPER_TOKEN` is not set. Store or pass that token from the extension before submitting alerts.
+When the local paper/live test launcher runs Sentinel Echo on `8010`, the bridge automatically falls back between local Sentinel Echo ports `8003` and `8010` for both message and heartbeat posts. Each HTTP attempt is bounded by a short timeout so a dead legacy port cannot stall the extension heartbeat indefinitely.
 
-## Example Call
+Use this only for Discord channels you can personally view in Chrome when the normal Discord bot cannot be invited to the private server.
 
-From a content script, use `window.TradingBridgeHelperClient`:
+## Install
 
-```javascript
-await window.TradingBridgeHelperClient.submitTradingBridgeAlert(
+1. Start the local bot backend that should receive alerts.
+2. Open `chrome://extensions`.
+3. Enable **Developer mode**.
+4. Click **Load unpacked**.
+5. Select this folder: `C:\Users\automation\GitBots\Sentinel-Link\extensions\trading-bridge`.
+6. Open Discord Web in Chrome.
+7. Click the extension icon and enable **Forward visible Discord messages**.
+8. After updating this folder, click **Reload** on the extension in `chrome://extensions`.
+
+## Multi-Bot Targets
+
+The popup includes a **Bot targets JSON** field. Each target can listen to all Discord channels or only specific channel URLs/IDs.
+
+All updated bots use the same endpoint suffixes:
+
+```text
+POST /api/discord/chrome-bridge/message
+POST /api/discord/chrome-bridge/heartbeat
+GET  /api/discord/chrome-bridge/health
+```
+
+Known local target roots:
+
+| Bot | Target root |
+| --- | --- |
+| Sentinel Echo | `http://127.0.0.1:8003/api/discord/chrome-bridge` or `http://127.0.0.1:8010/api/discord/chrome-bridge` |
+| Sentinel Archive | `http://127.0.0.1:9200/api/discord/chrome-bridge` |
+| Sentinel Core | `http://127.0.0.1:8005/api/discord/chrome-bridge` |
+| Sentinel Edge | `http://127.0.0.1:<edge-port>/api/discord/chrome-bridge` |
+| Sentinel Pulse | `http://127.0.0.1:<pulse-port>/api/discord/chrome-bridge` |
+| Sentinel-Chain | `http://127.0.0.1:<sentinel-chain-port>/api/discord/chrome-bridge` |
+| Sentinel Flare | `http://127.0.0.1:<darkpool-port>/api/discord/chrome-bridge` |
+
+```json
+[
   {
-    sourceUrl: "https://discord.com/channels/111111111111111111/222222222222222222",
-    messageId: "999999999999999999",
-    author: "Alert Bot",
-    timestampText: "Today at 12:00 PM",
-    text: "Entry alert",
-    embeds: [],
-    labels: [],
-    attachmentUrls: [],
-    capturedAt: new Date().toISOString()
+    "id": "sentinel-echo",
+    "name": "Sentinel Echo",
+    "enabled": true,
+    "messageUrl": "http://127.0.0.1:8003/api/discord/chrome-bridge/message",
+    "heartbeatUrl": "http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat",
+    "apiKey": "",
+    "allowedChannelUrls": [
+      "https://discord.com/channels/111111111111111111/222222222222222222"
+    ]
   },
-  { helperToken: "paste-helper-token-here" }
-);
+  {
+    "id": "sentinel-edge",
+    "name": "Sentinel Edge",
+    "enabled": true,
+    "messageUrl": "http://127.0.0.1:8010/api/discord/chrome-bridge/message",
+    "heartbeatUrl": "http://127.0.0.1:8010/api/discord/chrome-bridge/heartbeat",
+    "allowedChannelIds": ["333333333333333333"]
+  },
+  {
+    "id": "crypto-bot",
+    "name": "Crypto Bot",
+    "enabled": false,
+    "messageUrl": "http://127.0.0.1:8020/api/discord/chrome-bridge/message",
+    "heartbeatUrl": "http://127.0.0.1:8020/api/discord/chrome-bridge/heartbeat"
+  }
+]
 ```
 
-From an MV3 background service worker, use `globalThis.TradingBridgeHelperClient` instead:
+Notes:
 
-```javascript
-await globalThis.TradingBridgeHelperClient.submitTradingBridgeAlert(payload, {
-  helperToken: "paste-helper-token-here"
-});
+- `allowedChannelUrls` should use Discord channel URLs, not invite URLs.
+- A URL such as `https://discord.com/channels/<guild>/<channel>/<message>` is normalized to `https://discord.com/channels/<guild>/<channel>`.
+- If a target has no `allowedChannelUrls` or `allowedChannelIds`, it receives messages from every Discord channel the extension observes.
+- A message can be forwarded to multiple enabled targets when their filters match the same channel.
+- If one target is down but another target accepts the message, the bridge reports partial success and schedules retry supervision without blocking the successful target.
+
+## Behavior
+
+- Only messages rendered in the current Discord page can be observed.
+- The extension forwards only from Discord channel URLs that match at least one enabled target.
+- By default, enabling the extension primes currently visible messages as already seen and forwards only future messages.
+- Use the popup checkbox only when you intentionally want to forward messages already visible at enable time.
+- Switching Discord channels primes the newly visible messages by default, so old channel history is not replayed unless existing-message forwarding is enabled.
+- Messages are deduped by Discord DOM message id before forwarding.
+- Sentinel Echo's backend endpoint only accepts local requests by default.
+- Sentinel Echo parses the text through its existing Discord ingestion path.
+- Every accepted visible Discord message is also appended to the Cross Bot Event Bus as `signal.observed`.
+- Alert captures are permanently appended to market-day `.txt` files under `backend/data/alert-capture` by default.
+- The extension sends page heartbeats every 30 seconds and service-worker heartbeats every minute. Sentinel Echo records `bridge.health` events and emits `openclaw.attention.requested` when the bridge goes stale or reports forwarding errors.
+- The service worker supervises matching open Discord tabs every minute. Auto-restart is enabled by default in the popup. When forwarding, heartbeat, or content-script health checks fail, it re-injects the bridge content script and retries with exponential backoff from 5 seconds up to 5 minutes.
+- Chrome cannot let an extension restart itself after the user disables/uninstalls it or closes all matching Discord tabs. In those cases the supervisor records a disabled/no-tab/no-matching-tab heartbeat once the extension is running again.
+- Source policy still applies in each bot. In Sentinel Echo, use `chrome_bridge_channel_ids` or source overrides keyed by the observed Discord channel id/name when needed.
+
+## Cross Bot Event Bus
+
+Sentinel Echo exposes local-only event bus endpoints that other bots can adopt:
+
+```text
+POST /api/bus/events
+GET /api/bus/events?limit=100
 ```
 
-## Source Import Guidance
+The event stream is append-only JSONL under `backend/data/event-bus` by default. The shared event shape is versioned as `bot-event.v1` and is meant for Sentinel Edge to publish strategic action/state changes without blocking each bot's fast local execution loop.
 
-Place the current installed Sentinel Link Trading Bridge source in this directory, preserving its manifest and runtime files. Wire the existing parsed alert point to `TradingBridgeHelperClient.submitTradingBridgeAlert(...)` after `helper-client.js` is loaded by the extension, using `window.TradingBridgeHelperClient` in content scripts and `globalThis.TradingBridgeHelperClient` in MV3 background service workers.
+## Safety
 
-The helper client posts to `http://127.0.0.1:17654/events` by default. Pass `helperBaseUrl` only when the helper is intentionally running somewhere else. Pass `helperToken` explicitly, or store it as `helperToken` in `chrome.storage.local` for the helper client to read. If the extension relies on `chrome.storage.local`, its manifest must include the `"storage"` permission.
+Keep Sentinel Echo in simulation mode or manual-confirm mode until you have validated real alerts in parser preview. This bridge does not use a Discord user token and does not send messages back into the private server.
 
-## Boundaries
+## Helper Client
 
-- Do not read Discord tokens.
-- Do not call hidden Discord APIs.
-- Do not bypass Discord or Chrome extension permissions.
-- Preserve existing trading bridge behavior while adding helper event emission.
+`helper-client.js` is kept in this folder for Sentinel Link helper integrations. The Trading Bridge extension itself forwards to bot `/api/discord/chrome-bridge/*` endpoints. If a future bridge path also needs to submit events to `apps/external-helper`, load `helper-client.js` and call `TradingBridgeHelperClient.submitTradingBridgeAlert(...)` with the same local helper token used by Copy/Repost.
